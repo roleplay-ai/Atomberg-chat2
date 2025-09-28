@@ -22,18 +22,18 @@ export async function POST(request: NextRequest) {
         const { message } = await request.json()
 
         console.log('Processing chat request:', message)
-        
+
         const client = getOpenAIClient()
         let vectorStoreId = getVectorStoreId()
-        
+
         // If no vector store ID found, try to create one automatically
         if (!vectorStoreId) {
             console.log('No vector store ID found. Attempting to create one automatically...')
-            
+
             try {
                 // Create the vector store directly in the chat endpoint
                 const filePath = path.join(process.cwd(), 'public', 'Knowledge Base.pdf')
-                
+
                 if (!fs.existsSync(filePath)) {
                     return NextResponse.json(
                         { error: 'Knowledge base file not found. Please ensure Knowledge Base.pdf is in the public directory.' },
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
                 }
 
                 console.log('Creating file from:', filePath)
-                
+
                 // Create the file first
                 const file = await client.files.create({
                     file: fs.createReadStream(filePath),
@@ -60,11 +60,11 @@ export async function POST(request: NextRequest) {
 
                 console.log('Vector store created:', vectorStore.id)
                 vectorStoreId = vectorStore.id
-                
+
                 // Store the ID for future requests
                 setVectorStoreId(vectorStoreId)
                 console.log('Vector store ID stored for future requests:', vectorStoreId)
-                
+
             } catch (error) {
                 console.error('Error creating vector store automatically:', error)
                 return NextResponse.json(
