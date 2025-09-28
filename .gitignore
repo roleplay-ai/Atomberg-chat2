@@ -37,3 +37,5 @@ next-env.d.ts
 
 # vector store ID file
 .vector-store-id
+
+

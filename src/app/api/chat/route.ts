@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
             try {
                 // Create the vector store directly in the chat endpoint
-                const filePath = path.join(process.cwd(), 'public', 'Knowledge Base.pdf')
+                const filePath = path.join(process.cwd(), 'public', 'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf')
 
                 if (!fs.existsSync(filePath)) {
                     return NextResponse.json(

@@ -20,3 +20,4 @@ console.log('\n🚀 To start the application:');
 console.log('1. Add your OpenAI API key to .env.local');
 console.log('2. Run: npm run dev');
 console.log('3. Open: http://localhost:3000');
+

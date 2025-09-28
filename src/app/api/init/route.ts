@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
         const client = getOpenAIClient()
 
         // Path to the knowledge base file
-        const filePath = path.join(process.cwd(), 'public', 'Knowledge Base.pdf')
+        const filePath = path.join(process.cwd(), 'public', 'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf')
 
         if (!fs.existsSync(filePath)) {
             return NextResponse.json(
