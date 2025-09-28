@@ -153,7 +153,7 @@ export default function Home() {
                 <div className="header-content">
                     <img src="nudgeable.jpg" alt="Atomberg Solutions" className="header-icon" />
                     <div>
-                        <h1> Atomberg Solutions Assistant</h1>
+                        <h1> Atomberg Assistant</h1>
                         <div className="status">{status}</div>
                     </div>
                 </div>
