@@ -53,17 +53,24 @@ export async function GET(request: NextRequest) {
         console.log('Vector store created:', JSON.stringify(vectorStore, null, 2))
         console.log('Vector store ID:', vectorStore.id)
 
+        // Store the vector store ID
         setVectorStoreId(vectorStore.id)
         console.log('Knowledge base uploaded and system initialized successfully')
         console.log('Vector store status:', vectorStore.status)
         console.log('File counts:', vectorStore.file_counts)
+        console.log('Vector store ID stored:', vectorStore.id)
+
+        // Verify the ID was stored correctly
+        const storedId = getVectorStoreId()
+        console.log('Verification - stored vector store ID:', storedId)
 
         return NextResponse.json({
             message: 'System initialized and knowledge base uploaded',
             fileId: file.id,
             vectorStoreId: vectorStore.id,
             status: vectorStore.status,
-            fileCounts: vectorStore.file_counts
+            fileCounts: vectorStore.file_counts,
+            storedSuccessfully: storedId === vectorStore.id
         })
     } catch (error) {
         console.error('Init error:', error)

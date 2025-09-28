@@ -43,6 +43,7 @@ export default function Home() {
             if (response.ok) {
                 setIsInitialized(true)
                 setStatus('Ready! How can I help you today?')
+                console.log('System initialized successfully:', data)
 
                 // Only add welcome message if no messages exist yet
                 if (messages.length === 0) {
@@ -57,7 +58,7 @@ export default function Home() {
 
             // Only add error message if no messages exist yet
             if (messages.length === 0) {
-                addMessage("Sorry, I couldn't initialize. Please make sure the server is running and the knowledge base file is available.", 'bot')
+                addMessage("Sorry, I couldn't initialize. This might be due to server configuration issues. Please try refreshing the page, or contact support if the problem persists.", 'bot')
             }
         }
     }

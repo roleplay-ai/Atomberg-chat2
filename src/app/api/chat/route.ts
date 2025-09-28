@@ -21,8 +21,9 @@ export async function POST(request: NextRequest) {
 
         const vectorStoreId = getVectorStoreId()
         if (!vectorStoreId) {
+            console.log('No vector store ID found. This might be due to serverless environment limitations.')
             return NextResponse.json(
-                { error: 'System not properly initialized. Please refresh the page and try again.' },
+                { error: 'System not initialized. Please wait a moment and refresh the page, then try again.' },
                 { status: 400 }
             )
         }
