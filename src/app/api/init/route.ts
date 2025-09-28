@@ -17,37 +17,83 @@ const getOpenAIClient = () => {
     })
 }
 
+// Helper function to get all PDF files from knowledge base
+const getKnowledgeBaseFiles = (): string[] => {
+    const filePaths: string[] = []
+
+    // Check if knowledge-base directory exists
+    const knowledgeBaseDir = path.join(process.cwd(), 'public', 'knowledge-base')
+
+    if (fs.existsSync(knowledgeBaseDir)) {
+        console.log('Using knowledge-base directory:', knowledgeBaseDir)
+        const files = fs.readdirSync(knowledgeBaseDir)
+        filePaths.push(...files
+            .filter(file => file.toLowerCase().endsWith('.pdf'))
+            .map(file => path.join(knowledgeBaseDir, file))
+        )
+    } else {
+        // Fallback to individual files in public directory
+        console.log('knowledge-base directory not found, checking public directory...')
+        const publicFiles = [
+            'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf',
+            'Knowledge Base.pdf'
+        ]
+
+        filePaths.push(...publicFiles
+            .map(file => path.join(process.cwd(), 'public', file))
+            .filter(filePath => fs.existsSync(filePath))
+        )
+    }
+
+    return filePaths
+}
+
 export async function GET(request: NextRequest) {
     try {
         console.log('Initializing system and uploading knowledge base...')
 
         const client = getOpenAIClient()
 
-        // Path to the knowledge base file
-        const filePath = path.join(process.cwd(), 'public', 'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf')
+        // Get all PDF files from knowledge base
+        const filePaths = getKnowledgeBaseFiles()
 
-        if (!fs.existsSync(filePath)) {
+        if (filePaths.length === 0) {
             return NextResponse.json(
-                { error: 'Knowledge Base.pdf file not found in the public directory' },
+                { error: 'No knowledge base PDF files found. Please ensure PDF files are in the public/knowledge-base directory or public root.' },
                 { status: 400 }
             )
         }
 
-        console.log('Creating file from:', filePath)
-
-        // Create the file first
-        const file = await client.files.create({
-            file: fs.createReadStream(filePath),
-            purpose: 'assistants',
+        console.log(`Found ${filePaths.length} knowledge base files:`)
+        filePaths.forEach(filePath => {
+            console.log(`  - ${path.basename(filePath)}`)
         })
 
-        console.log('File created with ID:', file.id)
+        // Create files for all PDFs
+        const fileIds: string[] = []
+        const fileDetails: Array<{ id: string, name: string }> = []
 
-        // Create vector store with the file directly
-        console.log('Creating vector store with file...')
+        for (const filePath of filePaths) {
+            console.log('Creating file from:', path.basename(filePath))
+
+            const file = await client.files.create({
+                file: fs.createReadStream(filePath),
+                purpose: 'assistants',
+            })
+
+            console.log(`File created with ID: ${file.id} (${path.basename(filePath)})`)
+            fileIds.push(file.id)
+            fileDetails.push({
+                id: file.id,
+                name: path.basename(filePath)
+            })
+        }
+
+        // Create vector store with all files
+        console.log(`Creating vector store with ${fileIds.length} files...`)
         const vectorStore = await client.vectorStores.create({
-            name: 'Company Knowledge Base',
-            file_ids: [file.id]
+            name: 'Company Knowledge Base (Multi-File)',
+            file_ids: fileIds
         })
 
         console.log('Vector store created:', JSON.stringify(vectorStore, null, 2))
@@ -66,7 +112,8 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
             message: 'System initialized and knowledge base uploaded',
-            fileId: file.id,
+            fileCount: filePaths.length,
+            files: fileDetails,
             vectorStoreId: vectorStore.id,
             status: vectorStore.status,
             fileCounts: vectorStore.file_counts,

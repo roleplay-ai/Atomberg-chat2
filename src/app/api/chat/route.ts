@@ -17,6 +17,37 @@ const getOpenAIClient = () => {
     })
 }
 
+// Helper function to get all PDF files from knowledge base
+const getKnowledgeBaseFiles = (): string[] => {
+    const filePaths: string[] = []
+
+    // Check if knowledge-base directory exists
+    const knowledgeBaseDir = path.join(process.cwd(), 'public', 'knowledge-base')
+
+    if (fs.existsSync(knowledgeBaseDir)) {
+        console.log('Using knowledge-base directory:', knowledgeBaseDir)
+        const files = fs.readdirSync(knowledgeBaseDir)
+        filePaths.push(...files
+            .filter(file => file.toLowerCase().endsWith('.pdf'))
+            .map(file => path.join(knowledgeBaseDir, file))
+        )
+    } else {
+        // Fallback to individual files in public directory
+        console.log('knowledge-base directory not found, checking public directory...')
+        const publicFiles = [
+            'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf',
+            'Knowledge Base.pdf'
+        ]
+
+        filePaths.push(...publicFiles
+            .map(file => path.join(process.cwd(), 'public', file))
+            .filter(filePath => fs.existsSync(filePath))
+        )
+    }
+
+    return filePaths
+}
+
 export async function POST(request: NextRequest) {
     try {
         const { message } = await request.json()
@@ -31,31 +62,40 @@ export async function POST(request: NextRequest) {
             console.log('No vector store ID found. Attempting to create one automatically...')
 
             try {
-                // Create the vector store directly in the chat endpoint
-                const filePath = path.join(process.cwd(), 'public', 'Retailer_Roleplay_Knowledge_Base_Atomberg.pdf')
+                // Get all PDF files from knowledge base
+                const filePaths = getKnowledgeBaseFiles()
 
-                if (!fs.existsSync(filePath)) {
+                if (filePaths.length === 0) {
                     return NextResponse.json(
-                        { error: 'Knowledge base file not found. Please ensure Knowledge Base.pdf is in the public directory.' },
+                        { error: 'No knowledge base PDF files found. Please ensure PDF files are in the public/knowledge-base directory or public root.' },
                         { status: 400 }
                     )
                 }
 
-                console.log('Creating file from:', filePath)
-
-                // Create the file first
-                const file = await client.files.create({
-                    file: fs.createReadStream(filePath),
-                    purpose: 'assistants',
+                console.log(`Found ${filePaths.length} knowledge base files:`)
+                filePaths.forEach(filePath => {
+                    console.log(`  - ${path.basename(filePath)}`)
                 })
 
-                console.log('File created with ID:', file.id)
+                // Create files for all PDFs
+                const fileIds: string[] = []
+                for (const filePath of filePaths) {
+                    console.log('Creating file from:', path.basename(filePath))
 
-                // Create vector store with the file directly
-                console.log('Creating vector store with file...')
+                    const file = await client.files.create({
+                        file: fs.createReadStream(filePath),
+                        purpose: 'assistants',
+                    })
+
+                    console.log(`File created with ID: ${file.id} (${path.basename(filePath)})`)
+                    fileIds.push(file.id)
+                }
+
+                // Create vector store with all files
+                console.log(`Creating vector store with ${fileIds.length} files...`)
                 const vectorStore = await client.vectorStores.create({
-                    name: 'Company Knowledge Base',
-                    file_ids: [file.id]
+                    name: 'Company Knowledge Base (Multi-File)',
+                    file_ids: fileIds
                 })
 
                 console.log('Vector store created:', vectorStore.id)
@@ -104,14 +144,19 @@ export async function POST(request: NextRequest) {
         // Use the Responses API with file search
         const response = await client.responses.create({
             model: 'gpt-4o-mini',
-            input: `You are a helpful company assistant. Answer the user's question based ONLY on the company information provided in the attached documents. Be professional, helpful, and accurate. 
+            input: `You are a helpful company assistant with access to multiple company documents. Answer the user's question based ONLY on the company information provided in the attached documents. Be professional, helpful, and accurate. 
 
 IMPORTANT INSTRUCTIONS:
-- Only use information from the provided company documents
+-- Only use information from the provided company documents
 - If the information is not available in the documents, say "I don't have that information in our company records"
 - Don't mention that you're using documents or knowledge base
 - Provide specific details from the documents when available
 - Be conversational and helpful as a company representative
+- You have access to multiple documents, so cross-reference information when needed
+- DO NOT create generic headings, bullet points, or formatting structures
+- DO NOT add "Target vs. Achievement", "MTD Trends", "Productivity Metrics" or similar generic headings
+- Provide direct, specific answers without unnecessary formatting
+- Focus on the actual data and information, not presentation structure
 
 User's question: ${message}`,
             tools: [{
