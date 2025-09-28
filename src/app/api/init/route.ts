@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import fs from 'fs'
 import path from 'path'
-import { setVectorStoreId } from '@/lib/vectorStore'
+import { setVectorStoreId, getVectorStoreId } from '@/lib/vectorStore'
 
 // Initialize OpenAI client
 const getOpenAIClient = () => {
