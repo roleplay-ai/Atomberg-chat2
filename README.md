@@ -1,4 +1,4 @@
-## Company Assistant - Next.js Full-Stack Application
+# Company Assistant - Next.js Full-Stack Application
 
 A complete company assistant built with Next.js 14, TypeScript, and OpenAI's Assistants API. This is a full-stack application that automatically loads company information and acts as a knowledgeable company representative - no separate backend server needed!
 
