@@ -30,7 +30,8 @@ export default function Home() {
     useEffect(() => {
         if (!hasInitialized.current) {
             hasInitialized.current = true
-            initializeSystem()
+            // Check readiness first; if not initialized, call init
+            checkReadinessAndInit()
         }
     }, [])
 
@@ -59,6 +60,54 @@ export default function Home() {
             // Only add error message if no messages exist yet
             if (messages.length === 0) {
                 addMessage("Sorry, I couldn't initialize. This might be due to server configuration issues. Please try refreshing the page, or contact support if the problem persists.", 'bot')
+            }
+        }
+    }
+
+    const pollStatus = async (maxAttempts = 30, intervalMs = 2000) => {
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                const res = await fetch('/api/status', { cache: 'no-store' })
+                const json = await res.json()
+                if (json.ready) {
+                    setIsInitialized(true)
+                    setStatus('Ready! How can I help you today?')
+                    return true
+                }
+                if (json.status === 'error') {
+                    setStatus('Error verifying knowledge base. Retrying...')
+                } else if (json.status === 'not_initialized') {
+                    setStatus('Preparing knowledge base...')
+                } else if (json.status === 'in_progress') {
+                    setStatus('Processing knowledge base...')
+                }
+            } catch (e) {
+                console.error('Status check failed', e)
+                setStatus('Checking status...')
+            }
+            await new Promise(r => setTimeout(r, intervalMs))
+        }
+        return false
+    }
+
+    const checkReadinessAndInit = async () => {
+        setStatus('Checking knowledge base status...')
+        const ready = await pollStatus(1, 0)
+        if (ready) {
+            // Add welcome only if none
+            if (messages.length === 0) {
+                addMessage("Hello! I'm your company assistant. I'm here to help you with any questions about our company, policies, services, or any other information you might need. What would you like to know?", 'bot')
+            }
+            return
+        }
+        await initializeSystem()
+        // After kicking off init, poll until ready
+        const becameReady = await pollStatus(60, 2000)
+        if (!becameReady) {
+            setStatus('Still preparing knowledge base. You can ask general questions meanwhile.')
+        } else {
+            if (messages.length === 0) {
+                addMessage("Hello! I'm your company assistant. I'm here to help you with any questions about our company, policies, services, or any other information you might need. What would you like to know?", 'bot')
             }
         }
     }
@@ -178,6 +227,14 @@ export default function Home() {
                 <div ref={messagesEndRef} />
             </div>
 
+            {(!isInitialized) && (
+                <div className="loading-overlay">
+                    <div className="loading-content">
+                        <Loader2 className="animate-spin" size={28} />
+                        <div className="loading-text">{status}</div>
+                    </div>
+                </div>
+            )}
 
             <div className="input-container">
                 <input
@@ -186,12 +243,12 @@ export default function Home() {
                     onChange={(e) => setInputMessage(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Ask me anything about our company..."
-                    disabled={isLoading}
+                    disabled={isLoading || !isInitialized}
                     className="message-input"
                 />
                 <button
                     onClick={sendMessage}
-                    disabled={isLoading || !inputMessage.trim()}
+                    disabled={isLoading || !inputMessage.trim() || !isInitialized}
                     className="send-button"
                 >
                     {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
