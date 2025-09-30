@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { getVectorStoreId } from '@/lib/vectorStore'
+import { getVectorStoreId, setVectorStoreId } from '@/lib/vectorStore'
 
 const getOpenAIClient = () => {
     const apiKey = process.env.OPENAI_API_KEY
@@ -12,12 +12,27 @@ const getOpenAIClient = () => {
 
 export async function GET() {
     try {
-        const vectorStoreId = getVectorStoreId()
+        let vectorStoreId = getVectorStoreId()
+        const client = getOpenAIClient()
+
+        if (!vectorStoreId) {
+            try {
+                const list = await client.vectorStores.list({ limit: 50 })
+                const found = list.data.find(vs => vs.name === 'Company Knowledge Base (Multi-File)' && (vs.file_counts?.completed ?? 0) > 0)
+                if (found) {
+                    vectorStoreId = found.id
+                    setVectorStoreId(vectorStoreId)
+                    console.log('Discovered existing vector store and cached ID:', vectorStoreId)
+                }
+            } catch (e) {
+                console.warn('Unable to list vector stores for discovery:', e)
+            }
+        }
+
         if (!vectorStoreId) {
             return NextResponse.json({ ready: false, status: 'not_initialized' }, { status: 200 })
         }
 
-        const client = getOpenAIClient()
         const vectorStore = await client.vectorStores.retrieve(vectorStoreId)
 
         const inProgress = vectorStore.status === 'in_progress'

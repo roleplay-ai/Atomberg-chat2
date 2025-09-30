@@ -55,7 +55,21 @@ export async function POST(request: NextRequest) {
         console.log('Processing chat request:', message)
 
         const client = getOpenAIClient()
-        const vectorStoreId = getVectorStoreId()
+        let vectorStoreId = getVectorStoreId()
+        if (!vectorStoreId) {
+            // Attempt to discover an existing vector store by name in production
+            try {
+                const list = await client.vectorStores.list({ limit: 50 })
+                const found = list.data.find(vs => vs.name === 'Company Knowledge Base (Multi-File)' && (vs.file_counts?.completed ?? 0) > 0)
+                if (found) {
+                    vectorStoreId = found.id
+                    setVectorStoreId(vectorStoreId)
+                    console.log('Discovered existing vector store and cached ID:', vectorStoreId)
+                }
+            } catch (e) {
+                console.warn('Unable to list vector stores for discovery:', e)
+            }
+        }
         if (!vectorStoreId) {
             return NextResponse.json(
                 { error: 'Knowledge base not initialized. Please initialize before chatting.' },
