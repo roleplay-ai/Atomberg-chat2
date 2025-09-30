@@ -36,6 +36,7 @@ body {
     flex-direction: column;
     height: 95vh;
     max-height: 800px;
+    position: relative;
 }
 
 .chatbot-header {
@@ -263,6 +264,35 @@ body {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* Loading overlay for initialization */
+.loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.loading-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #e9ecef;
+    border-radius: 14px;
+    padding: 12px 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.loading-text {
+    font-size: 14px;
+    color: #444;
+    font-weight: 600;
 }
 
 @keyframes slideIn {
