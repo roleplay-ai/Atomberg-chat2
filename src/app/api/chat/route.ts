@@ -55,63 +55,12 @@ export async function POST(request: NextRequest) {
         console.log('Processing chat request:', message)
 
         const client = getOpenAIClient()
-        let vectorStoreId = getVectorStoreId()
-
-        // If no vector store ID found, try to create one automatically
+        const vectorStoreId = getVectorStoreId()
         if (!vectorStoreId) {
-            console.log('No vector store ID found. Attempting to create one automatically...')
-
-            try {
-                // Get all PDF files from knowledge base
-                const filePaths = getKnowledgeBaseFiles()
-
-                if (filePaths.length === 0) {
-                    return NextResponse.json(
-                        { error: 'No knowledge base PDF files found. Please ensure PDF files are in the public/knowledge-base directory or public root.' },
-                        { status: 400 }
-                    )
-                }
-
-                console.log(`Found ${filePaths.length} knowledge base files:`)
-                filePaths.forEach(filePath => {
-                    console.log(`  - ${path.basename(filePath)}`)
-                })
-
-                // Create files for all PDFs
-                const fileIds: string[] = []
-                for (const filePath of filePaths) {
-                    console.log('Creating file from:', path.basename(filePath))
-
-                    const file = await client.files.create({
-                        file: fs.createReadStream(filePath),
-                        purpose: 'assistants',
-                    })
-
-                    console.log(`File created with ID: ${file.id} (${path.basename(filePath)})`)
-                    fileIds.push(file.id)
-                }
-
-                // Create vector store with all files
-                console.log(`Creating vector store with ${fileIds.length} files...`)
-                const vectorStore = await client.vectorStores.create({
-                    name: 'Company Knowledge Base (Multi-File)',
-                    file_ids: fileIds
-                })
-
-                console.log('Vector store created:', vectorStore.id)
-                vectorStoreId = vectorStore.id
-
-                // Store the ID for future requests
-                setVectorStoreId(vectorStoreId)
-                console.log('Vector store ID stored for future requests:', vectorStoreId)
-
-            } catch (error) {
-                console.error('Error creating vector store automatically:', error)
-                return NextResponse.json(
-                    { error: 'Failed to initialize knowledge base. Please try again in a moment.' },
-                    { status: 500 }
-                )
-            }
+            return NextResponse.json(
+                { error: 'Knowledge base not initialized. Please initialize before chatting.' },
+                { status: 400 }
+            )
         }
 
         // Check if vector store is ready
