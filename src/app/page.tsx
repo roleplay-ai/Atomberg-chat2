@@ -154,12 +154,32 @@ export default function Home() {
             if (response.ok) {
                 addMessage(data.reply, 'bot')
             } else {
-                throw new Error(data.error || 'Failed to get response')
+                const errorMsg = (data && data.error) ? String(data.error) : 'Failed to get response'
+                const processing = errorMsg.toLowerCase().includes('still being processed') ||
+                    errorMsg.toLowerCase().includes('not ready')
+                if (processing) {
+                    // Do not surface an error message; show loader and poll until ready
+                    setIsInitialized(false)
+                    setStatus('Processing knowledge base...')
+                    await pollStatus(60, 2000)
+                    return
+                }
+                throw new Error(errorMsg)
             }
         } catch (error) {
             console.error('Chat error:', error)
             setMessages(prev => prev.filter(msg => msg.id !== typingId))
-            addMessage('❌ Sorry, I encountered an error: ' + (error as Error).message, 'bot')
+            const msg = (error as Error).message || ''
+            const processing = msg.toLowerCase().includes('still being processed') ||
+                msg.toLowerCase().includes('not ready')
+            if (processing) {
+                // Suppress chat error message; show loader and poll until ready
+                setIsInitialized(false)
+                setStatus('Processing knowledge base...')
+                await pollStatus(60, 2000)
+            } else {
+                addMessage('❌ Sorry, I encountered an error: ' + msg, 'bot')
+            }
         } finally {
             setIsLoading(false)
         }
