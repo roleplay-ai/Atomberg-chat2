@@ -121,6 +121,12 @@ IMPORTANT INSTRUCTIONS:
 - Provide direct, specific answers without unnecessary formatting
 - Focus on the actual data and information, not presentation structure
 
+CRITICAL OUTPUT FORMAT:
+After your natural language answer, output a SINGLE extra line exactly in this format so the app can navigate to referenced PDF pages:
+SOURCES_JSON={"sources":[{"fileName":"<basename>","page":<pageNumber>}]}
+If you do not have specific page references, output exactly: SOURCES_JSON={"sources":[]}
+Only one SOURCES_JSON line. Use minified JSON. No comments.
+
 User's question: ${message}`,
             tools: [{
                 type: 'file_search',
@@ -133,15 +139,48 @@ User's question: ${message}`,
 
         // Extract the message content from the response
         let reply = 'Sorry, I couldn\'t process your request.'
+        let sources: { fileName: string; page: number }[] = []
 
         if (response.output && response.output.length > 0) {
             // Find the message output item
             const messageOutput = response.output.find(item => item.type === 'message')
             if (messageOutput && messageOutput.content && messageOutput.content.length > 0) {
-                const textContent = messageOutput.content.find(content => content.type === 'output_text')
+                const textContent: any = messageOutput.content.find(content => content.type === 'output_text')
                 if (textContent) {
                     reply = textContent.text
+                    try {
+                        const raw = reply
+                        const sourcesLineMatch = raw.match(/SOURCES_JSON=\s*(`)?(\{[\s\S]*?\})(`)?\s*$/)
+                        if (sourcesLineMatch) {
+                            let jsonStr = sourcesLineMatch[2].trim()
+                            try {
+                                const parsed = JSON.parse(jsonStr)
+                                if (parsed && Array.isArray(parsed.sources)) {
+                                    sources = parsed.sources
+                                }
+                            } catch {
+                                if (jsonStr.endsWith('}}')) {
+                                    jsonStr = jsonStr.slice(0, -1)
+                                }
+                                const parsed2 = JSON.parse(jsonStr)
+                                if (parsed2 && Array.isArray(parsed2.sources)) {
+                                    sources = parsed2.sources
+                                }
+                            }
+                            reply = raw.replace(/\n?SOURCES_JSON=[\s\S]*$/, '').trim()
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse SOURCES_JSON from reply')
+                    }
                     console.log('Extracted reply:', reply)
+
+                    // Fallback: if no sources parsed but annotation cites SFA file, return default page 1
+                    if ((!sources || sources.length === 0) && Array.isArray(textContent.annotations)) {
+                        const sfaAnno = textContent.annotations.find((a: any) => a && a.type === 'file_citation' && typeof a.filename === 'string' && a.filename.toLowerCase().includes('sfa'))
+                        if (sfaAnno && typeof sfaAnno.filename === 'string') {
+                            sources = [{ fileName: sfaAnno.filename, page: 1 }]
+                        }
+                    }
                 }
             }
 
@@ -152,7 +191,7 @@ User's question: ${message}`,
             }
         }
 
-        return NextResponse.json({ reply })
+        return NextResponse.json({ reply, sources })
     } catch (error) {
         console.error('Chat error:', error)
         return NextResponse.json(
