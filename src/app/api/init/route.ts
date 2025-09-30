@@ -54,6 +54,26 @@ export async function GET(request: NextRequest) {
 
         const client = getOpenAIClient()
 
+        // If already initialized, verify readiness and return
+        const existingId = getVectorStoreId()
+        if (existingId) {
+            try {
+                const existingStore = await client.vectorStores.retrieve(existingId)
+                const ready = existingStore.status !== 'in_progress' && (existingStore.file_counts?.completed ?? 0) > 0
+                if (ready) {
+                    return NextResponse.json({
+                        message: 'System already initialized',
+                        ready: true,
+                        vectorStoreId: existingId,
+                        status: existingStore.status,
+                        fileCounts: existingStore.file_counts,
+                    })
+                }
+            } catch (e) {
+                console.warn('Stored vector store not retrievable, will re-initialize.')
+            }
+        }
+
         // Get all PDF files from knowledge base
         const filePaths = getKnowledgeBaseFiles()
 
@@ -96,28 +116,35 @@ export async function GET(request: NextRequest) {
             file_ids: fileIds
         })
 
-        console.log('Vector store created:', JSON.stringify(vectorStore, null, 2))
-        console.log('Vector store ID:', vectorStore.id)
+        console.log('Vector store created:', vectorStore.id)
 
         // Store the vector store ID
         setVectorStoreId(vectorStore.id)
-        console.log('Knowledge base uploaded and system initialized successfully')
-        console.log('Vector store status:', vectorStore.status)
-        console.log('File counts:', vectorStore.file_counts)
-        console.log('Vector store ID stored:', vectorStore.id)
 
-        // Verify the ID was stored correctly
-        const storedId = getVectorStoreId()
-        console.log('Verification - stored vector store ID:', storedId)
+        // Wait until processing completes
+        const maxAttempts = 120
+        const intervalMs = 2000
+        let ready = false
+        let latestStore = vectorStore
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            latestStore = await client.vectorStores.retrieve(vectorStore.id)
+            const inProgress = latestStore.status === 'in_progress'
+            const hasFiles = (latestStore.file_counts?.completed ?? 0) > 0
+            ready = !inProgress && hasFiles
+            console.log(`Vector store poll ${attempt + 1}/${maxAttempts}: status=${latestStore.status}, completed=${latestStore.file_counts?.completed}`)
+            if (ready) break
+            await new Promise(r => setTimeout(r, intervalMs))
+        }
 
         return NextResponse.json({
             message: 'System initialized and knowledge base uploaded',
+            ready,
             fileCount: filePaths.length,
             files: fileDetails,
             vectorStoreId: vectorStore.id,
-            status: vectorStore.status,
-            fileCounts: vectorStore.file_counts,
-            storedSuccessfully: storedId === vectorStore.id
+            status: latestStore.status,
+            fileCounts: latestStore.file_counts,
+            storedSuccessfully: getVectorStoreId() === vectorStore.id
         })
     } catch (error) {
         console.error('Init error:', error)

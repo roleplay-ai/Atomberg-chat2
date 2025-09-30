@@ -126,7 +126,7 @@ export default function Home() {
     const sendMessage = async () => {
         if (!inputMessage.trim() || isLoading) return
         if (!isInitialized) {
-            addMessage("Please wait, I'm still initializing...", 'bot')
+            setStatus('Processing knowledge base...')
             return
         }
 
