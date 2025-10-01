@@ -167,13 +167,10 @@ export default function Home() {
 
             if (response.ok) {
                 addMessage(data.reply, 'bot')
-                console.log('Received sources from API:', data.sources)
                 if (Array.isArray(data.sources) && data.sources.length > 0) {
                     const preferred = data.sources.find((s: any) => typeof s.fileName === 'string' && s.fileName.toLowerCase().includes('sfa')) || data.sources[0]
-                    console.log('Preferred source:', preferred)
                     if (preferred && typeof preferred.fileName === 'string' && typeof preferred.page === 'number') {
                         const targetPage = Math.max(1, preferred.page)
-                        console.log('Setting PDF to page:', targetPage, 'from preferred.page:', preferred.page)
                         setPdfFile(`knowledge-base/${preferred.fileName}`)
                         setPdfPage(targetPage)
                         setMessages(prev => {
@@ -187,8 +184,6 @@ export default function Home() {
                             return updated
                         })
                     }
-                } else {
-                    console.warn('No sources received from API')
                 }
             } else {
                 const errorMsg = (data && data.error) ? String(data.error) : 'Failed to get response'

@@ -17,7 +17,6 @@ interface Props {
 }
 
 export default function PdfViewerClient({ file, page }: Props) {
-    console.log('[PdfViewerClient] Received props - file:', file, 'page:', page)
     const [pdfZoom, setPdfZoom] = useState<string>('page-width')
     const [numPages, setNumPages] = useState<number | null>(null)
     const viewerContainerRef = useRef<HTMLDivElement>(null)
@@ -64,22 +63,14 @@ export default function PdfViewerClient({ file, page }: Props) {
 
     // Auto-scroll to the referenced page
     useEffect(() => {
-        console.log('[PdfViewerClient] Scroll effect triggered - page:', page, 'numPages:', numPages)
         if (!pageRefs.current || !viewerContainerRef.current || !numPages) {
-            console.log('[PdfViewerClient] Scroll check failed:', { hasRefs: !!pageRefs.current, hasContainer: !!viewerContainerRef.current, numPages })
             return
         }
-        console.log('[PdfViewerClient] Attempting to scroll to page:', page, 'out of', numPages)
         // Add a small delay to ensure pages are rendered
         const timer = setTimeout(() => {
             const el = pageRefs.current[page]
-            console.log('[PdfViewerClient] Page element found:', !!el, 'offsetTop:', el?.offsetTop)
             if (el && typeof el.offsetTop === 'number') {
-                console.log('[PdfViewerClient] Scrolling to offsetTop:', el.offsetTop - 8)
                 viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
-                console.log('[PdfViewerClient] Successfully scrolled to page', page)
-            } else {
-                console.warn('[PdfViewerClient] Failed to scroll - element not found or no offsetTop for page', page)
             }
         }, 500) // Increased delay for better reliability
         return () => clearTimeout(timer)
@@ -93,7 +84,7 @@ export default function PdfViewerClient({ file, page }: Props) {
     return (
         <div className="right-pane">
             <div className="pdf-header">
-                <div className="pdf-title">SFA User Manual</div>
+                <div className="pdf-title">User Manual</div>
                 <div className="pdf-toolbar">
                     <button className="pdf-btn" onClick={zoomOut} title="Zoom out">-</button>
                     <button className="pdf-btn" onClick={fitToWidth} title="Fit to width">Fit</button>
