@@ -1,13 +1,8 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Send, Bot, User, Loader2 } from 'lucide-react'
-import { Document, Page, pdfjs } from 'react-pdf'
-import 'react-pdf/dist/Page/TextLayer.css'
-import 'react-pdf/dist/Page/AnnotationLayer.css'
-
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+import { Send, Bot, User, Loader2, FileText } from 'lucide-react'
+import dynamic from 'next/dynamic'
 
 interface Message {
     id: number
@@ -26,13 +21,11 @@ export default function Home() {
     const [pdfFile, setPdfFile] = useState<string>('knowledge-base/SFA User Manual_ASE with Multi Distributor.pdf')
     const [pdfPage, setPdfPage] = useState<number>(1)
     const [lastQuestion, setLastQuestion] = useState<string>('')
+    const [showPdf, setShowPdf] = useState(false)
+    const [isMobile, setIsMobile] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const hasInitialized = useRef(false)
-    const [pdfZoom, setPdfZoom] = useState<string>('page-width')
-    const [numPages, setNumPages] = useState<number | null>(null)
-    const viewerContainerRef = useRef<HTMLDivElement>(null)
-    const [viewerWidth, setViewerWidth] = useState<number>(0)
-    const pageRefs = useRef<{ [page: number]: HTMLDivElement | null }>({})
+    const PdfViewer = useMemo(() => dynamic(() => import('./components/PdfViewerClient'), { ssr: false }), [])
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -43,6 +36,15 @@ export default function Home() {
     }, [messages])
 
     useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth <= 768)
+        }
+        checkMobile()
+        window.addEventListener('resize', checkMobile)
+        return () => window.removeEventListener('resize', checkMobile)
+    }, [])
+
+    useEffect(() => {
         if (!hasInitialized.current) {
             hasInitialized.current = true
             // Check readiness first; if not initialized, call init
@@ -50,26 +52,7 @@ export default function Home() {
         }
     }, [])
 
-    // Track viewer container width for fit-to-width and zoom
-    useEffect(() => {
-        const updateWidth = () => {
-            if (viewerContainerRef.current) {
-                setViewerWidth(viewerContainerRef.current.clientWidth)
-            }
-        }
-        updateWidth()
-        window.addEventListener('resize', updateWidth)
-        return () => window.removeEventListener('resize', updateWidth)
-    }, [])
-
-    // Auto-scroll to the referenced page when pdfPage changes
-    useEffect(() => {
-        if (!pageRefs.current || !viewerContainerRef.current) return
-        const el = pageRefs.current[pdfPage]
-        if (el && typeof el.offsetTop === 'number') {
-            viewerContainerRef.current.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
-        }
-    }, [pdfPage])
+    // client-only viewer handles scrolling
 
     const initializeSystem = async () => {
         try {
@@ -150,87 +133,19 @@ export default function Home() {
 
     const addMessage = (text: string, sender: 'user' | 'bot' | 'typing', source?: { fileName: string; page: number } | null) => {
         const newMessage: Message = {
-            id: Date.now(),
+            id: Date.now() + Math.random(), // Ensure unique IDs
             text,
             sender,
             timestamp: new Date(),
             source: source ?? null
         }
         setMessages(prev => [...prev, newMessage])
+        return newMessage.id // Return the ID for reference
     }
 
-    const zoomIn = () => {
-        if (pdfZoom === 'page-width') {
-            setPdfZoom('125')
-        } else {
-            const current = parseInt(pdfZoom || '100', 10)
-            setPdfZoom(String(Math.min(current + 25, 300)))
-        }
-    }
+    // pdf zoom & document handling moved to client-only viewer
 
-    const zoomOut = () => {
-        if (pdfZoom === 'page-width') return
-        const current = parseInt(pdfZoom || '100', 10)
-        const next = Math.max(current - 25, 50)
-        setPdfZoom(String(next))
-    }
-
-    const fitToWidth = () => setPdfZoom('page-width')
-
-    const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-        setNumPages(numPages)
-    }
-
-    // Fallback: if AI didn't return a page for SFA, try to locate page by keywords
-    useEffect(() => {
-        const shouldSearch = pdfFile.toLowerCase().includes('sfa') && (!lastQuestion || lastQuestion.trim().length < 3 ? false : true)
-        if (!shouldSearch) return
-
-        // Only run if page is 1 or missing and we have an SFA file
-        if (pdfPage !== 1) return
-
-        let cancelled = false
-        const run = async () => {
-            try {
-                const loadingTask = pdfjs.getDocument({ url: encodeURI('/' + pdfFile) })
-                const pdf = await loadingTask.promise
-                const terms = Array.from(new Set(
-                    lastQuestion
-                        .toLowerCase()
-                        .replace(/[^a-z0-9\s]/g, ' ')
-                        .split(/\s+/)
-                        .filter(w => w.length >= 4)
-                ))
-                if (terms.length === 0) return
-                let bestPage = 1
-                let bestScore = 0
-                const total = pdf.numPages
-                for (let p = 1; p <= total; p++) {
-                    const page = await pdf.getPage(p)
-                    const textContent = await page.getTextContent()
-                    const text = textContent.items.map((it: any) => (it.str || '')).join(' ').toLowerCase()
-                    let score = 0
-                    for (const t of terms) {
-                        if (text.includes(t)) score += 1
-                    }
-                    if (score > bestScore) {
-                        bestScore = score
-                        bestPage = p
-                    }
-                    // Early exit if strong match
-                    if (bestScore >= Math.min(terms.length, 5)) break
-                    if (cancelled) return
-                }
-                if (!cancelled && bestScore > 0 && bestPage !== pdfPage) {
-                    setPdfPage(bestPage)
-                }
-            } catch (e) {
-                console.warn('Fallback page finder error:', e)
-            }
-        }
-        run()
-        return () => { cancelled = true }
-    }, [pdfFile, lastQuestion])
+    // Removed fallback page finder - rely on AI-provided page numbers
 
 
     const sendMessage = async () => {
@@ -245,9 +160,8 @@ export default function Home() {
         setInputMessage('')
         addMessage(message, 'user')
 
-        // Add typing indicator
-        const typingId = Date.now()
-        addMessage('Thinking...', 'typing')
+        // Add typing indicator and capture its ID
+        const typingId = addMessage('Thinking...', 'typing')
 
         try {
             setIsLoading(true)
@@ -267,9 +181,9 @@ export default function Home() {
                 if (Array.isArray(data.sources) && data.sources.length > 0) {
                     const preferred = data.sources.find((s: any) => typeof s.fileName === 'string' && s.fileName.toLowerCase().includes('sfa')) || data.sources[0]
                     if (preferred && typeof preferred.fileName === 'string' && typeof preferred.page === 'number') {
+                        const targetPage = Math.max(1, preferred.page)
                         setPdfFile(`knowledge-base/${preferred.fileName}`)
-                        setPdfPage(Math.max(1, preferred.page))
-                        setPdfZoom('page-width')
+                        setPdfPage(targetPage)
                         setMessages(prev => {
                             const updated = [...prev]
                             for (let i = updated.length - 1; i >= 0; i--) {
@@ -354,6 +268,13 @@ export default function Home() {
                         <h1> Atomberg Assistant</h1>
                         <div className="status">{status}</div>
                     </div>
+                    <button
+                        className="pdf-toggle-button"
+                        onClick={() => setShowPdf(!showPdf)}
+                        title={showPdf ? "Hide PDF" : "Show PDF"}
+                    >
+                        <FileText size={20} />
+                    </button>
                 </div>
             </div>
             <div className="split-content">
@@ -368,7 +289,16 @@ export default function Home() {
                                     <div className="message-text">
                                         {message.text}
                                         {message.source && message.sender === 'bot' && (
-                                            <div className="source-hint">Referenced: {message.source.fileName} — page {message.source.page}</div>
+                                            <div
+                                                className={`source-hint ${isMobile ? 'clickable' : ''}`}
+                                                onClick={isMobile ? () => {
+                                                    setPdfFile(`knowledge-base/${message.source!.fileName}`)
+                                                    setPdfPage(message.source!.page)
+                                                    setShowPdf(true)
+                                                } : undefined}
+                                            >
+                                                📄 Referenced: {message.source.fileName} — page {message.source.page}{isMobile ? ' (click to view)' : ''}
+                                            </div>
                                         )}
                                     </div>
                                     {message.sender !== 'typing' && (
@@ -400,41 +330,8 @@ export default function Home() {
                         </button>
                     </div>
                 </div>
-                <div className="right-pane">
-                    <div className="pdf-header">
-                        <div className="pdf-title">SFA User Manual</div>
-                        <div className="pdf-toolbar">
-                            <button className="pdf-btn" onClick={zoomOut} title="Zoom out">-</button>
-                            <button className="pdf-btn" onClick={fitToWidth} title="Fit to width">Fit</button>
-                            <button className="pdf-btn" onClick={zoomIn} title="Zoom in">+</button>
-                            <span className="pdf-zoom">{pdfZoom === 'page-width' ? 'Fit' : pdfZoom + '%'}</span>
-                            <a className="pdf-link" href={`/${pdfFile}`} target="_blank" rel="noreferrer">Open</a>
-                            <a className="pdf-link" href={`/${pdfFile}`} download>Download</a>
-                        </div>
-                    </div>
-                    <div className="pdf-scroll" ref={viewerContainerRef}>
-                        <Document
-                            file={useMemo(() => encodeURI('/' + pdfFile), [pdfFile])}
-                            onLoadSuccess={onDocumentLoadSuccess}
-                            onLoadError={(err) => console.error('PDF load error:', err)}
-                            onSourceError={(err) => console.error('PDF source error:', err)}
-                            loading={<div style={{ padding: 12 }}>Loading PDF…</div>}
-                            error={<div style={{ padding: 12, color: 'crimson' }}>Failed to load PDF.</div>}
-                        >
-                            {numPages ? (
-                                Array.from({ length: numPages }, (_, idx) => idx + 1).map((p) => (
-                                    <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 8 }}>
-                                        <Page
-                                            pageNumber={p}
-                                            width={pdfZoom === 'page-width' ? viewerWidth : Math.max(200, Math.floor(viewerWidth * (parseInt(pdfZoom || '100', 10) / 100)))}
-                                            renderTextLayer={true}
-                                            renderAnnotationLayer={true}
-                                        />
-                                    </div>
-                                ))
-                            ) : null}
-                        </Document>
-                    </div>
+                <div className={`pdf-wrapper ${showPdf ? 'show' : ''}`}>
+                    <PdfViewer file={pdfFile} page={pdfPage} onClose={() => setShowPdf(false)} isVisible={!isMobile || showPdf} />
                 </div>
             </div>
 
