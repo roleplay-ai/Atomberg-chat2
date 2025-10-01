@@ -122,10 +122,21 @@ IMPORTANT INSTRUCTIONS:
 - Focus on the actual data and information, not presentation structure
 
 CRITICAL OUTPUT FORMAT:
-After your natural language answer, output a SINGLE extra line exactly in this format so the app can navigate to referenced PDF pages:
+After your natural language answer, you MUST ALWAYS output a SINGLE extra line exactly in this format so the app can navigate to referenced PDF pages:
 SOURCES_JSON={"sources":[{"fileName":"<basename>","page":<pageNumber>}]}
-If you do not have specific page references, output exactly: SOURCES_JSON={"sources":[]}
-Only one SOURCES_JSON line. Use minified JSON. No comments.
+
+IMPORTANT RULES FOR SOURCES_JSON:
+- ALWAYS include a page number, even if approximate
+- If you found the information in a specific section, provide that page number
+- If the question is general or you can't determine a specific page, use page 1 as the default
+- NEVER output an empty sources array
+- Use the exact filename from the documents (e.g., "SFA User Manual_ASE with Multi Distributor.pdf")
+- Use minified JSON format with no extra spaces or comments
+- Only output ONE SOURCES_JSON line
+
+Examples:
+- Specific info found: SOURCES_JSON={"sources":[{"fileName":"SFA User Manual_ASE with Multi Distributor.pdf","page":49}]}
+- General info or page unknown: SOURCES_JSON={"sources":[{"fileName":"SFA User Manual_ASE with Multi Distributor.pdf","page":1}]}
 
 User's question: ${message}`,
             tools: [{
@@ -150,45 +161,109 @@ User's question: ${message}`,
                     reply = textContent.text
                     try {
                         const raw = reply
-                        const sourcesLineMatch = raw.match(/SOURCES_JSON=\s*(`)?(\{[\s\S]*?\})(`)?\s*$/)
+                        // Match the entire SOURCES_JSON line (including any trailing characters)
+                        const sourcesLineMatch = raw.match(/SOURCES_JSON=[\s\S]*$/)
                         if (sourcesLineMatch) {
-                            let jsonStr = sourcesLineMatch[2].trim()
-                            try {
-                                const parsed = JSON.parse(jsonStr)
-                                if (parsed && Array.isArray(parsed.sources)) {
-                                    sources = parsed.sources
-                                }
-                            } catch {
-                                if (jsonStr.endsWith('}}')) {
-                                    jsonStr = jsonStr.slice(0, -1)
-                                }
-                                const parsed2 = JSON.parse(jsonStr)
-                                if (parsed2 && Array.isArray(parsed2.sources)) {
-                                    sources = parsed2.sources
+                            console.log('Found SOURCES_JSON line:', sourcesLineMatch[0])
+                            // Extract the JSON part - use greedy match to get the complete JSON object
+                            const jsonMatch = sourcesLineMatch[0].match(/\{[\s\S]*\}/)
+                            if (jsonMatch) {
+                                let jsonStr = jsonMatch[0].trim()
+                                console.log('Extracted JSON string:', jsonStr)
+                                try {
+                                    const parsed = JSON.parse(jsonStr)
+                                    if (parsed && Array.isArray(parsed.sources)) {
+                                        sources = parsed.sources
+                                        console.log('Successfully parsed sources:', sources)
+                                    }
+                                } catch (parseErr) {
+                                    console.warn('Initial JSON parse failed:', parseErr)
+                                    // Try removing extra closing brace if present
+                                    if (jsonStr.endsWith('}}')) {
+                                        try {
+                                            jsonStr = jsonStr.slice(0, -1)
+                                            const parsed2 = JSON.parse(jsonStr)
+                                            if (parsed2 && Array.isArray(parsed2.sources)) {
+                                                sources = parsed2.sources
+                                                console.log('Parsed sources after removing extra brace:', sources)
+                                            }
+                                        } catch (secondErr) {
+                                            console.warn('Failed to parse SOURCES_JSON after removing extra brace:', secondErr)
+                                        }
+                                    }
                                 }
                             }
-                            reply = raw.replace(/\n?SOURCES_JSON=[\s\S]*$/, '').trim()
+                            // Always remove the SOURCES_JSON line from reply
+                            reply = raw.substring(0, raw.indexOf('SOURCES_JSON=')).trim()
                         }
                     } catch (e) {
-                        console.warn('Failed to parse SOURCES_JSON from reply')
+                        console.warn('Failed to parse SOURCES_JSON from reply', e)
                     }
                     console.log('Extracted reply:', reply)
+                    console.log('Final sources array:', sources)
 
-                    // Fallback: if no sources parsed but annotation cites SFA file, return default page 1
-                    if ((!sources || sources.length === 0) && Array.isArray(textContent.annotations)) {
-                        const sfaAnno = textContent.annotations.find((a: any) => a && a.type === 'file_citation' && typeof a.filename === 'string' && a.filename.toLowerCase().includes('sfa'))
-                        if (sfaAnno && typeof sfaAnno.filename === 'string') {
-                            sources = [{ fileName: sfaAnno.filename, page: 1 }]
+                    // Only extract from annotations if SOURCES_JSON parsing failed
+                    if (sources.length === 0 && Array.isArray(textContent.annotations) && textContent.annotations.length > 0) {
+                        console.log('SOURCES_JSON not found, falling back to file citations:', JSON.stringify(textContent.annotations, null, 2))
+
+                        // Look for SFA file citations with page info
+                        const sfaCitations = textContent.annotations.filter((a: any) =>
+                            a && a.type === 'file_citation' &&
+                            typeof a.filename === 'string' &&
+                            a.filename.toLowerCase().includes('sfa')
+                        )
+
+                        if (sfaCitations.length > 0) {
+                            // Extract unique page numbers from annotations
+                            const pageNumbers = new Set<number>()
+                            for (const citation of sfaCitations) {
+                                // Try to extract page from quote or index
+                                if (typeof citation.index === 'number' && citation.index > 0) {
+                                    // Rough estimate: assume ~500 chars per page
+                                    const estimatedPage = Math.max(1, Math.floor(citation.index / 500))
+                                    pageNumbers.add(estimatedPage)
+                                }
+                            }
+
+                            // Use first SFA citation for filename
+                            const firstSfa = sfaCitations[0]
+                            if (pageNumbers.size > 0) {
+                                const firstPage = Array.from(pageNumbers)[0]
+                                sources = [{ fileName: firstSfa.filename, page: firstPage }]
+                            } else {
+                                sources = [{ fileName: firstSfa.filename, page: 1 }]
+                            }
+
+                            console.log('Extracted sources from annotations (fallback):', sources)
                         }
                     }
                 }
             }
 
-            // Also check for file search results
-            const fileSearchOutput = response.output.find(item => item.type === 'file_search_call')
+            // Also check for file search results as another fallback
+            const fileSearchOutput: any = response.output.find(item => item.type === 'file_search_call')
             if (fileSearchOutput) {
                 console.log('File search results:', JSON.stringify(fileSearchOutput, null, 2))
+
+                // If we still don't have sources, try to extract from file search results
+                if ((!sources || sources.length === 0) && fileSearchOutput.results && Array.isArray(fileSearchOutput.results)) {
+                    for (const result of fileSearchOutput.results) {
+                        if (result.filename && result.filename.toLowerCase().includes('sfa')) {
+                            // Check if result has page info
+                            const page = result.page_number || result.page || 1
+                            sources = [{ fileName: result.filename, page: Math.max(1, page) }]
+                            console.log('Extracted page from file search results (fallback):', sources)
+                            break
+                        }
+                    }
+                }
             }
+        }
+
+        // Ensure we always have at least a default source with page 1 if nothing was found
+        if (!sources || sources.length === 0) {
+            sources = [{ fileName: 'SFA User Manual_ASE with Multi Distributor.pdf', page: 1 }]
+            console.log('No sources found, using default:', sources)
         }
 
         return NextResponse.json({ reply, sources })
