@@ -22,22 +22,40 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
     const [pdfZoom, setPdfZoom] = useState<string>('page-width')
     const [numPages, setNumPages] = useState<number | null>(null)
     const viewerContainerRef = useRef<HTMLDivElement>(null)
-    const [viewerWidth, setViewerWidth] = useState<number>(0)
+    const [viewerWidth, setViewerWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth - 40 : 600)
+    const [isMobileDevice, setIsMobileDevice] = useState(false)
     const pageRefs = useRef<{ [page: number]: HTMLDivElement | null }>({})
 
     useEffect(() => {
-        const updateWidth = () => {
+        const checkMobileAndUpdateWidth = () => {
+            setIsMobileDevice(window.innerWidth <= 768)
             if (viewerContainerRef.current) {
                 const containerWidth = viewerContainerRef.current.clientWidth
-                // On mobile, subtract padding to get accurate width
-                const isMobile = window.innerWidth <= 768
-                setViewerWidth(isMobile ? containerWidth - 16 : containerWidth)
+                // Ensure we have a valid width
+                const effectiveWidth = Math.max(containerWidth - 16, 300)
+                setViewerWidth(effectiveWidth)
             }
         }
-        updateWidth()
-        window.addEventListener('resize', updateWidth)
-        return () => window.removeEventListener('resize', updateWidth)
+        // Delay to ensure container is properly sized
+        const timer = setTimeout(checkMobileAndUpdateWidth, 100)
+        window.addEventListener('resize', checkMobileAndUpdateWidth)
+        return () => {
+            clearTimeout(timer)
+            window.removeEventListener('resize', checkMobileAndUpdateWidth)
+        }
     }, [])
+
+    // Re-calculate width when visibility changes (for mobile)
+    useEffect(() => {
+        if (isVisible && viewerContainerRef.current) {
+            const timer = setTimeout(() => {
+                const containerWidth = viewerContainerRef.current?.clientWidth || 300
+                const effectiveWidth = Math.max(containerWidth - 16, 300)
+                setViewerWidth(effectiveWidth)
+            }, 100)
+            return () => clearTimeout(timer)
+        }
+    }, [isVisible])
 
     // Reset zoom on file change or when becoming visible on mobile
     useEffect(() => {
@@ -85,14 +103,18 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
             if (el && typeof el.offsetTop === 'number') {
                 viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
             }
-        }, 500) // Increased delay for better reliability
+        }, 600) // Delay to allow PDF to load and render
         return () => clearTimeout(timer)
     }, [page, numPages, isVisible])
 
     const fileUrl = useMemo(() => encodeURI('/' + file), [file])
-    const computedWidth = pdfZoom === 'page-width'
-        ? viewerWidth
-        : Math.max(200, Math.floor(viewerWidth * (parseInt(pdfZoom || '100', 10) / 100)))
+    const computedWidth = useMemo(() => {
+        if (pdfZoom === 'page-width') {
+            return Math.max(viewerWidth, 300)
+        }
+        const zoomPercent = parseInt(pdfZoom || '100', 10)
+        return Math.max(300, Math.floor(viewerWidth * (zoomPercent / 100)))
+    }, [pdfZoom, viewerWidth])
 
     return (
         <div className="right-pane">
@@ -121,12 +143,13 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
                 >
                     {numPages ? (
                         Array.from({ length: numPages }, (_, idx) => idx + 1).map((p) => (
-                            <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 4 }}>
+                            <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 4, width: '100%' }}>
                                 <Page
                                     pageNumber={p}
                                     width={computedWidth}
-                                    renderTextLayer={true}
-                                    renderAnnotationLayer={true}
+                                    renderTextLayer={!isMobileDevice}
+                                    renderAnnotationLayer={!isMobileDevice}
+                                    loading={<div style={{ padding: '20px', textAlign: 'center' }}>Loading page {p}...</div>}
                                 />
                             </div>
                         ))
