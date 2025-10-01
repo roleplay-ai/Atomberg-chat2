@@ -26,6 +26,7 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
     const [isMobileDevice, setIsMobileDevice] = useState(false)
     const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set())
     const [pdfError, setPdfError] = useState<string | null>(null)
+    const [isLoadingPage, setIsLoadingPage] = useState(false)
     const pageRefs = useRef<{ [page: number]: HTMLDivElement | null }>({})
 
     useEffect(() => {
@@ -95,8 +96,8 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
         // On mobile, initially load only pages around the current page
         if (isMobileDevice) {
             const initialPages = new Set<number>()
-            // Smaller range for iOS to prevent memory issues
-            const range = 2 // Load 2 pages before and after
+            // Load more pages when navigating directly to a specific page
+            const range = 5 // Load 5 pages before and after initially
             for (let i = Math.max(1, page - range); i <= Math.min(numPages, page + range); i++) {
                 initialPages.add(i)
             }
@@ -151,12 +152,22 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
     useEffect(() => {
         if (!isMobileDevice || !numPages) return
 
-        const pagesToLoad = new Set(loadedPages)
-        const range = 3
-        for (let i = Math.max(1, page - range); i <= Math.min(numPages, page + range); i++) {
-            pagesToLoad.add(i)
+        if (!loadedPages.has(page)) {
+            setIsLoadingPage(true)
         }
-        setLoadedPages(pagesToLoad)
+
+        setLoadedPages(prevPages => {
+            const pagesToLoad = new Set(prevPages)
+            const range = 5 // Load more pages when directly navigating
+            for (let i = Math.max(1, page - range); i <= Math.min(numPages, page + range); i++) {
+                pagesToLoad.add(i)
+            }
+            return pagesToLoad
+        })
+
+        // Clear loading indicator after a delay
+        const timer = setTimeout(() => setIsLoadingPage(false), 1500)
+        return () => clearTimeout(timer)
     }, [page, isMobileDevice, numPages])
 
     // Auto-scroll to the referenced page
@@ -164,15 +175,47 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
         if (!pageRefs.current || !viewerContainerRef.current || !numPages || !isVisible) {
             return
         }
-        // Add a small delay to ensure pages are rendered
-        const timer = setTimeout(() => {
-            const el = pageRefs.current[page]
-            if (el && typeof el.offsetTop === 'number') {
-                viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+
+        // For mobile with progressive loading, wait for the page to be loaded
+        if (isMobileDevice && !loadedPages.has(page)) {
+            // Page not loaded yet, wait a bit longer
+            const checkTimer = setInterval(() => {
+                if (loadedPages.has(page)) {
+                    clearInterval(checkTimer)
+                    setTimeout(() => {
+                        const el = pageRefs.current[page]
+                        if (el && typeof el.offsetTop === 'number') {
+                            viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+                        }
+                    }, 800)
+                }
+            }, 100)
+
+            // Clear after max 5 seconds
+            const maxWaitTimer = setTimeout(() => {
+                clearInterval(checkTimer)
+                // Try to scroll anyway
+                const el = pageRefs.current[page]
+                if (el && typeof el.offsetTop === 'number') {
+                    viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+                }
+            }, 5000)
+
+            return () => {
+                clearInterval(checkTimer)
+                clearTimeout(maxWaitTimer)
             }
-        }, 600) // Delay to allow PDF to load and render
-        return () => clearTimeout(timer)
-    }, [page, numPages, isVisible])
+        } else {
+            // Page already loaded or on desktop, scroll with normal delay
+            const timer = setTimeout(() => {
+                const el = pageRefs.current[page]
+                if (el && typeof el.offsetTop === 'number') {
+                    viewerContainerRef.current?.scrollTo({ top: el.offsetTop - 8, behavior: 'smooth' })
+                }
+            }, 800)
+            return () => clearTimeout(timer)
+        }
+    }, [page, numPages, isVisible, isMobileDevice, loadedPages])
 
     const fileUrl = useMemo(() => encodeURI('/' + file), [file])
     const computedWidth = useMemo(() => {
@@ -185,6 +228,24 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
 
     return (
         <div className="right-pane">
+            {isMobileDevice && isLoadingPage && (
+                <div style={{
+                    position: 'absolute',
+                    top: 60,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    background: 'rgba(102, 126, 234, 0.95)',
+                    color: 'white',
+                    padding: '8px 16px',
+                    borderRadius: 20,
+                    fontSize: 13,
+                    zIndex: 100,
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                    animation: 'fadeIn 0.3s ease'
+                }}>
+                    Loading page {page}...
+                </div>
+            )}
             <div className="pdf-header">
                 <div className="pdf-title">User Manual</div>
                 <div className="pdf-toolbar">
@@ -307,14 +368,17 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
                                             width: computedWidth,
                                             minHeight: '600px',
                                             display: 'flex',
+                                            flexDirection: 'column',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            background: '#f0f0f0',
-                                            border: '1px solid #ddd',
-                                            color: '#666',
-                                            fontSize: '14px'
+                                            background: '#f8f9fa',
+                                            border: '1px solid #e0e0e0',
+                                            color: '#999',
+                                            fontSize: '14px',
+                                            gap: 8
                                         }}>
-                                            Page {p}
+                                            <div style={{ fontSize: 16, fontWeight: 500 }}>Page {p}</div>
+                                            <div style={{ fontSize: 12, color: '#bbb' }}>Scroll to load</div>
                                         </div>
                                     )}
                                 </div>
