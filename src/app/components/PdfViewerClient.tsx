@@ -14,9 +14,11 @@ if (typeof window !== 'undefined') {
 interface Props {
     file: string
     page: number
+    onClose?: () => void
+    isVisible?: boolean
 }
 
-export default function PdfViewerClient({ file, page }: Props) {
+export default function PdfViewerClient({ file, page, onClose, isVisible = true }: Props) {
     const [pdfZoom, setPdfZoom] = useState<string>('page-width')
     const [numPages, setNumPages] = useState<number | null>(null)
     const viewerContainerRef = useRef<HTMLDivElement>(null)
@@ -26,7 +28,10 @@ export default function PdfViewerClient({ file, page }: Props) {
     useEffect(() => {
         const updateWidth = () => {
             if (viewerContainerRef.current) {
-                setViewerWidth(viewerContainerRef.current.clientWidth)
+                const containerWidth = viewerContainerRef.current.clientWidth
+                // On mobile, subtract padding to get accurate width
+                const isMobile = window.innerWidth <= 768
+                setViewerWidth(isMobile ? containerWidth - 16 : containerWidth)
             }
         }
         updateWidth()
@@ -34,7 +39,15 @@ export default function PdfViewerClient({ file, page }: Props) {
         return () => window.removeEventListener('resize', updateWidth)
     }, [])
 
-    // Reset zoom on file change
+    // Reset zoom on file change or when becoming visible on mobile
+    useEffect(() => {
+        const isMobile = window.innerWidth <= 768
+        if (isMobile && isVisible) {
+            setPdfZoom('page-width')
+        }
+    }, [file, isVisible])
+
+    // Ensure page-width on mobile by default
     useEffect(() => {
         setPdfZoom('page-width')
     }, [file])
@@ -63,7 +76,7 @@ export default function PdfViewerClient({ file, page }: Props) {
 
     // Auto-scroll to the referenced page
     useEffect(() => {
-        if (!pageRefs.current || !viewerContainerRef.current || !numPages) {
+        if (!pageRefs.current || !viewerContainerRef.current || !numPages || !isVisible) {
             return
         }
         // Add a small delay to ensure pages are rendered
@@ -74,7 +87,7 @@ export default function PdfViewerClient({ file, page }: Props) {
             }
         }, 500) // Increased delay for better reliability
         return () => clearTimeout(timer)
-    }, [page, numPages])
+    }, [page, numPages, isVisible])
 
     const fileUrl = useMemo(() => encodeURI('/' + file), [file])
     const computedWidth = pdfZoom === 'page-width'
@@ -86,6 +99,9 @@ export default function PdfViewerClient({ file, page }: Props) {
             <div className="pdf-header">
                 <div className="pdf-title">User Manual</div>
                 <div className="pdf-toolbar">
+                    {onClose && (
+                        <button className="pdf-close-btn" onClick={onClose} title="Close PDF">✕</button>
+                    )}
                     <button className="pdf-btn" onClick={zoomOut} title="Zoom out">-</button>
                     <button className="pdf-btn" onClick={fitToWidth} title="Fit to width">Fit</button>
                     <button className="pdf-btn" onClick={zoomIn} title="Zoom in">+</button>
@@ -105,7 +121,7 @@ export default function PdfViewerClient({ file, page }: Props) {
                 >
                     {numPages ? (
                         Array.from({ length: numPages }, (_, idx) => idx + 1).map((p) => (
-                            <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 8 }}>
+                            <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 4 }}>
                                 <Page
                                     pageNumber={p}
                                     width={computedWidth}

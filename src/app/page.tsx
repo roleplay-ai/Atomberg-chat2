@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
-import { Send, Bot, User, Loader2 } from 'lucide-react'
+import { Send, Bot, User, Loader2, FileText } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
 interface Message {
@@ -21,6 +21,8 @@ export default function Home() {
     const [pdfFile, setPdfFile] = useState<string>('knowledge-base/SFA User Manual_ASE with Multi Distributor.pdf')
     const [pdfPage, setPdfPage] = useState<number>(1)
     const [lastQuestion, setLastQuestion] = useState<string>('')
+    const [showPdf, setShowPdf] = useState(false)
+    const [isMobile, setIsMobile] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const hasInitialized = useRef(false)
     const PdfViewer = useMemo(() => dynamic(() => import('./components/PdfViewerClient'), { ssr: false }), [])
@@ -32,6 +34,15 @@ export default function Home() {
     useEffect(() => {
         scrollToBottom()
     }, [messages])
+
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth <= 768)
+        }
+        checkMobile()
+        window.addEventListener('resize', checkMobile)
+        return () => window.removeEventListener('resize', checkMobile)
+    }, [])
 
     useEffect(() => {
         if (!hasInitialized.current) {
@@ -257,6 +268,13 @@ export default function Home() {
                         <h1> Atomberg Assistant</h1>
                         <div className="status">{status}</div>
                     </div>
+                    <button
+                        className="pdf-toggle-button"
+                        onClick={() => setShowPdf(!showPdf)}
+                        title={showPdf ? "Hide PDF" : "Show PDF"}
+                    >
+                        <FileText size={20} />
+                    </button>
                 </div>
             </div>
             <div className="split-content">
@@ -271,7 +289,16 @@ export default function Home() {
                                     <div className="message-text">
                                         {message.text}
                                         {message.source && message.sender === 'bot' && (
-                                            <div className="source-hint">Referenced: {message.source.fileName} — page {message.source.page}</div>
+                                            <div
+                                                className={`source-hint ${isMobile ? 'clickable' : ''}`}
+                                                onClick={isMobile ? () => {
+                                                    setPdfFile(`knowledge-base/${message.source!.fileName}`)
+                                                    setPdfPage(message.source!.page)
+                                                    setShowPdf(true)
+                                                } : undefined}
+                                            >
+                                                📄 Referenced: {message.source.fileName} — page {message.source.page}{isMobile ? ' (click to view)' : ''}
+                                            </div>
                                         )}
                                     </div>
                                     {message.sender !== 'typing' && (
@@ -303,7 +330,9 @@ export default function Home() {
                         </button>
                     </div>
                 </div>
-                <PdfViewer file={pdfFile} page={pdfPage} />
+                <div className={`pdf-wrapper ${showPdf ? 'show' : ''}`}>
+                    <PdfViewer file={pdfFile} page={pdfPage} onClose={() => setShowPdf(false)} isVisible={!isMobile || showPdf} />
+                </div>
             </div>
 
             {(!isInitialized) && (
