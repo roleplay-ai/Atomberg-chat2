@@ -24,6 +24,8 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
     const viewerContainerRef = useRef<HTMLDivElement>(null)
     const [viewerWidth, setViewerWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth - 40 : 600)
     const [isMobileDevice, setIsMobileDevice] = useState(false)
+    const [loadedPages, setLoadedPages] = useState<Set<number>>(new Set())
+    const [pdfError, setPdfError] = useState<string | null>(null)
     const pageRefs = useRef<{ [page: number]: HTMLDivElement | null }>({})
 
     useEffect(() => {
@@ -90,7 +92,72 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
 
     const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
         setNumPages(numPages)
+        // On mobile, initially load only pages around the current page
+        if (isMobileDevice) {
+            const initialPages = new Set<number>()
+            // Smaller range for iOS to prevent memory issues
+            const range = 2 // Load 2 pages before and after
+            for (let i = Math.max(1, page - range); i <= Math.min(numPages, page + range); i++) {
+                initialPages.add(i)
+            }
+            setLoadedPages(initialPages)
+        } else {
+            // On desktop, load all pages
+            const allPages = new Set<number>()
+            for (let i = 1; i <= numPages; i++) {
+                allPages.add(i)
+            }
+            setLoadedPages(allPages)
+        }
     }
+
+    // Load more pages as user scrolls
+    useEffect(() => {
+        if (!isMobileDevice || !numPages) return
+
+        const handleScroll = () => {
+            const container = viewerContainerRef.current
+            if (!container) return
+
+            // Calculate which pages should be visible
+            const scrollTop = container.scrollTop
+            const containerHeight = container.clientHeight
+            const scrollBottom = scrollTop + containerHeight
+
+            // Estimate page positions and load nearby pages
+            const estimatedPageHeight = containerHeight * 0.8
+            const firstVisiblePage = Math.max(1, Math.floor(scrollTop / estimatedPageHeight) + 1)
+            const lastVisiblePage = Math.min(numPages, Math.ceil(scrollBottom / estimatedPageHeight) + 1)
+
+            const pagesToLoad = new Set(loadedPages)
+            const range = 3
+            for (let i = Math.max(1, firstVisiblePage - range); i <= Math.min(numPages, lastVisiblePage + range); i++) {
+                pagesToLoad.add(i)
+            }
+
+            if (pagesToLoad.size !== loadedPages.size) {
+                setLoadedPages(pagesToLoad)
+            }
+        }
+
+        const container = viewerContainerRef.current
+        if (container) {
+            container.addEventListener('scroll', handleScroll)
+            return () => container.removeEventListener('scroll', handleScroll)
+        }
+    }, [isMobileDevice, numPages, loadedPages])
+
+    // Update loaded pages when navigating to a new page
+    useEffect(() => {
+        if (!isMobileDevice || !numPages) return
+
+        const pagesToLoad = new Set(loadedPages)
+        const range = 3
+        for (let i = Math.max(1, page - range); i <= Math.min(numPages, page + range); i++) {
+            pagesToLoad.add(i)
+        }
+        setLoadedPages(pagesToLoad)
+    }, [page, isMobileDevice, numPages])
 
     // Auto-scroll to the referenced page
     useEffect(() => {
@@ -133,31 +200,132 @@ export default function PdfViewerClient({ file, page, onClose, isVisible = true 
                 </div>
             </div>
             <div className="pdf-scroll" ref={viewerContainerRef}>
-                <Document
-                    file={fileUrl}
-                    onLoadSuccess={onDocumentLoadSuccess}
-                    onLoadError={(err) => console.error('PDF load error:', err)}
-                    onSourceError={(err) => console.error('PDF source error:', err)}
-                    loading={<div style={{ padding: 12 }}>Loading PDF…</div>}
-                    error={<div style={{ padding: 12, color: 'crimson' }}>Failed to load PDF.</div>}
-                >
-                    {numPages ? (
-                        Array.from({ length: numPages }, (_, idx) => idx + 1).map((p) => (
-                            <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 4, width: '100%' }}>
-                                <Page
-                                    pageNumber={p}
-                                    width={computedWidth}
-                                    renderTextLayer={!isMobileDevice}
-                                    renderAnnotationLayer={!isMobileDevice}
-                                    loading={<div style={{ padding: '20px', textAlign: 'center' }}>Loading page {p}...</div>}
-                                />
+                {pdfError ? (
+                    <div style={{ padding: 20, textAlign: 'center' }}>
+                        <div style={{ color: '#d32f2f', marginBottom: 16, fontSize: 16, fontWeight: 600 }}>
+                            Unable to load PDF
+                        </div>
+                        <div style={{ color: '#666', marginBottom: 20, fontSize: 14 }}>
+                            This PDF may be too large for your device's browser. Please try:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+                            <a
+                                href={fileUrl}
+                                download
+                                style={{
+                                    padding: '12px 24px',
+                                    background: '#667eea',
+                                    color: 'white',
+                                    textDecoration: 'none',
+                                    borderRadius: 8,
+                                    fontSize: 14,
+                                    fontWeight: 500
+                                }}
+                            >
+                                Download PDF
+                            </a>
+                            <a
+                                href={fileUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                    padding: '12px 24px',
+                                    background: '#f0f0f0',
+                                    color: '#333',
+                                    textDecoration: 'none',
+                                    borderRadius: 8,
+                                    fontSize: 14,
+                                    fontWeight: 500
+                                }}
+                            >
+                                Open in New Tab
+                            </a>
+                            <button
+                                onClick={() => {
+                                    setPdfError(null)
+                                    setNumPages(null)
+                                }}
+                                style={{
+                                    padding: '8px 16px',
+                                    background: 'transparent',
+                                    color: '#667eea',
+                                    border: '1px solid #667eea',
+                                    borderRadius: 8,
+                                    fontSize: 13,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Try Again
+                            </button>
+                        </div>
+                    </div>
+                ) : (
+                    <Document
+                        file={fileUrl}
+                        onLoadSuccess={onDocumentLoadSuccess}
+                        onLoadError={(err) => {
+                            console.error('PDF load error:', err)
+                            setPdfError('Failed to load PDF. The file may be too large or corrupted.')
+                        }}
+                        onSourceError={(err) => {
+                            console.error('PDF source error:', err)
+                            setPdfError('Failed to load PDF source.')
+                        }}
+                        loading={<div style={{ padding: 12 }}>Loading PDF…</div>}
+                        error={
+                            <div style={{ padding: 20, textAlign: 'center' }}>
+                                <div style={{ color: '#d32f2f', marginBottom: 12 }}>Failed to load PDF</div>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    style={{
+                                        padding: '8px 16px',
+                                        background: '#667eea',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: 6,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Reload Page
+                                </button>
                             </div>
-                        ))
-                    ) : null}
-                </Document>
+                        }
+                    >
+                        {numPages ? (
+                            Array.from({ length: numPages }, (_, idx) => idx + 1).map((p) => (
+                                <div key={`page-${p}`} ref={(el) => { pageRefs.current[p] = el }} style={{ display: 'flex', justifyContent: 'center', padding: 4, width: '100%', minHeight: isMobileDevice && !loadedPages.has(p) ? '600px' : 'auto' }}>
+                                    {loadedPages.has(p) ? (
+                                        <Page
+                                            pageNumber={p}
+                                            width={computedWidth}
+                                            renderTextLayer={!isMobileDevice}
+                                            renderAnnotationLayer={!isMobileDevice}
+                                            loading={<div style={{ padding: '20px', textAlign: 'center' }}>Loading page {p}...</div>}
+                                        />
+                                    ) : (
+                                        <div style={{
+                                            width: computedWidth,
+                                            minHeight: '600px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            background: '#f0f0f0',
+                                            border: '1px solid #ddd',
+                                            color: '#666',
+                                            fontSize: '14px'
+                                        }}>
+                                            Page {p}
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        ) : null}
+                    </Document>
+                )}
             </div>
         </div>
     )
 }
+
 
 
